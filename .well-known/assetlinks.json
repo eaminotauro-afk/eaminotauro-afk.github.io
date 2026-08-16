@@ -3,6 +3,6 @@
       "target": {
         "namespace": "android_app",
         "package_name": "io.github.eaminotauro_afk.twa",
-        "sha256_cert_fingerprints": ["AC:E4:D1:34:B1:0E:DB:57:50:F2:7A:04:A9:0E:07:F5:44:E4:CC:FF:22:CD:3C:7B:F8:7F:22:69:73:F0:19:8D"]
+        "sha256_cert_fingerprints": ["3F:6E:5A:CB:9E:90:DB:BA:BB:FE:1C:0D:FF:45:A2:3D:B9:9A:79:12:C1:C9:52:DB:DD:1B:55:D2:19:98:C5:50"]
       }
     }]
