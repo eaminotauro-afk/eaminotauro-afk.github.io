@@ -228,7 +228,7 @@
   /* El video se recorta (object-fit:cover) enfocado al centro, para que el
      personaje llene toda la pantalla del teléfono sin bordes ni sensación
      de "cuadro flotante", aunque el clip original sea horizontal. */
-  #splash-screen video{position:absolute; inset:0; width:100%; height:100%; object-fit:cover; object-position:50% 42%; display:block; opacity:0; animation:splashFadeIn .5s ease forwards;}
+  #splash-screen video{position:absolute; inset:0; width:100%; height:100%; object-fit:cover; object-position:32% 42%; display:block; opacity:0; animation:splashFadeIn .5s ease forwards;}
   #splash-screen::after{content:''; position:absolute; left:0; right:0; bottom:0; height:46%; background:linear-gradient(to top, rgba(0,0,0,.85), rgba(0,0,0,0)); z-index:1; pointer-events:none;}
   #splash-screen .splash-text-wrap{position:absolute; left:0; right:0; bottom:6%; z-index:2; display:flex; flex-direction:column; align-items:center; text-align:center; padding:0 24px;}
   #splash-screen .splash-sound-hint{color:#e7dfdc; font-size:11px; margin-top:8px; opacity:0; display:flex; align-items:center; gap:5px; animation:splashFadeIn .5s ease .8s forwards;}
@@ -591,9 +591,25 @@
 
   <section id="tab-musica" style="display:none;">
     <p class="hint">Reproduce canciones que ya tengas guardadas en tu teléfono.</p>
-    <label class="photo-btn" style="display:block;">🎵 Agregar canciones de tu teléfono
-      <input type="file" accept="audio/*" multiple style="display:none" id="musica-input" onchange="agregarCanciones(this.files)">
-    </label>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+      <label class="photo-btn" style="flex:1; min-width:150px; margin-bottom:0;">🎵 Agregar canciones
+        <input type="file" accept="audio/*" multiple style="display:none" id="musica-input" onchange="agregarCanciones(this.files)">
+      </label>
+      <label class="photo-btn" style="flex:1; min-width:150px; margin-bottom:0;">📂 Escanear carpeta completa
+        <input type="file" webkitdirectory multiple style="display:none" id="musica-folder-input" onchange="escanearCarpetaMusica(this.files); this.value='';">
+      </label>
+    </div>
+    <p class="hint" style="font-size:11px; margin-top:6px;">Con "Escanear carpeta" eliges una carpeta (ej. Music) y se agregan todos sus audios de una sola vez. Elige una carpeta que NO tenga tus notas de voz de WhatsApp si no las quieres en tu lista.</p>
+
+    <div id="musica-toggle-row" style="display:flex; justify-content:flex-end; margin-top:10px;">
+      <button class="bg-btn" id="musica-btn-seleccionar" onclick="toggleSeleccionMusica()">Seleccionar varias</button>
+    </div>
+    <div id="musica-selection-bar" class="selection-bar" style="display:none; position:static; top:auto;">
+      <span id="musica-selection-count" style="flex:1; font-size:13px; color:var(--text);"></span>
+      <button class="bg-btn" style="color:var(--red); border-color:var(--red);" onclick="eliminarSeleccionMusica()">Eliminar</button>
+      <button class="bg-btn" onclick="toggleSeleccionMusica()">Cancelar</button>
+    </div>
+
     <div id="musica-playlist"></div>
 
     <div id="musica-reproductor" style="display:none; position:sticky; bottom:64px; background:var(--balance-bg); border-radius:18px; padding:18px; margin-top:14px; box-shadow:0 4px 20px rgba(0,0,0,.35); overflow:hidden;">
@@ -658,6 +674,7 @@
 
 <script>
 let tipoActual = "gasto";
+const autoHideControllers = {}; // pausar/reanudar el desvanecimiento por inactividad de Tareas y Recordatorios
 
 function load(key){ try{ return JSON.parse(localStorage.getItem(key)) || []; }catch(e){ return []; } }
 function loadObj(key){ try{ return JSON.parse(localStorage.getItem(key)) || {}; }catch(e){ return {}; } }
@@ -1107,6 +1124,8 @@ function abrirSelectorColorNota(tipo, id){
   const items = load(tipo==='compra' ? 'compras-items' : 'recordatorios-list');
   const it = items.find(i=>i.id===id);
   if(!it) return;
+  const contentId = tipo==='compra' ? 'compras-content' : 'recordatorios-content';
+  pausarAutoHide(contentId); // que la nota/recordatorio NO se desvanezca mientras se elige el color
   const input = document.createElement('input');
   input.type = 'color';
   input.value = (it.color && it.color.charAt(0)==='#') ? it.color : '#FFC700';
@@ -1126,6 +1145,7 @@ function abrirSelectorColorNota(tipo, id){
     if(limpiado) return;
     limpiado = true;
     if(input.parentNode) document.body.removeChild(input);
+    reanudarAutoHide(contentId); // se acabó la edición, vuelve el desvanecimiento normal
   };
 
   input.addEventListener('input', ()=>{
@@ -1925,11 +1945,14 @@ function setupAutoHide(sectionId, contentId){
   const section = document.getElementById(sectionId);
   const content = document.getElementById(contentId);
   let hideTimer = null;
+  let pausado = false; // true mientras algo fuera del contenedor (ej. el selector
+                        // de color nativo) necesita que las notas sigan visibles
   function estaActivo(){
     return content.contains(document.activeElement) && document.activeElement !== document.body;
   }
   function scheduleHide(){
     clearTimeout(hideTimer);
+    if(pausado) return;
     hideTimer = setTimeout(()=>{
       if(estaActivo()){ scheduleHide(); return; }
       content.style.opacity = '0';
@@ -1939,7 +1962,7 @@ function setupAutoHide(sectionId, contentId){
   function mostrar(){
     content.style.opacity = '1';
     content.style.pointerEvents = 'auto';
-    scheduleHide();
+    if(!pausado) scheduleHide();
   }
   section.addEventListener('click', mostrar);
   content.addEventListener('pointerdown', mostrar);
@@ -1947,7 +1970,25 @@ function setupAutoHide(sectionId, contentId){
   content.addEventListener('keydown', mostrar);
   content.addEventListener('focusin', ()=>clearTimeout(hideTimer));
   content.addEventListener('focusout', scheduleHide);
+
+  // Controlador externo: lo usa abrirSelectorColorNota() para congelar la
+  // visibilidad de las notas mientras el selector de color (que vive en
+  // document.body, no dentro de "content") sigue abierto.
+  autoHideControllers[contentId] = {
+    pausar(){
+      pausado = true;
+      clearTimeout(hideTimer);
+      content.style.opacity = '1';
+      content.style.pointerEvents = 'auto';
+    },
+    reanudar(){
+      pausado = false;
+      scheduleHide();
+    }
+  };
 }
+function pausarAutoHide(contentId){ const c = autoHideControllers[contentId]; if(c) c.pausar(); }
+function reanudarAutoHide(contentId){ const c = autoHideControllers[contentId]; if(c) c.reanudar(); }
 
 
 // --- Foto opcional por nota / recordatorio ---
@@ -2167,6 +2208,56 @@ async function agregarCanciones(files){
     if(musicaLista[musicaIndice] === song) actualizarInfoReproductor(song);
   });
 }
+// Filtra únicamente audio de una carpeta escaneada completa (webkitdirectory
+// puede traer archivos de cualquier tipo si la carpeta tiene mezcla de cosas).
+function esArchivoAudio(f){
+  if(f.type && f.type.startsWith('audio/')) return true;
+  return /\.(mp3|m4a|aac|wav|ogg|opus|flac|wma)$/i.test(f.name);
+}
+function escanearCarpetaMusica(fileList){
+  const audios = Array.from(fileList).filter(esArchivoAudio);
+  if(audios.length === 0){ alert('No se encontró ningún archivo de audio en esa carpeta.'); return; }
+  agregarCanciones(audios);
+}
+
+// --- Selección múltiple para borrar varias canciones de una vez ---
+let musicaSeleccionMode = false;
+let musicaSeleccionadas = new Set();
+function toggleSeleccionMusica(){
+  musicaSeleccionMode = !musicaSeleccionMode;
+  musicaSeleccionadas.clear();
+  document.getElementById('musica-btn-seleccionar').style.display = musicaSeleccionMode ? 'none' : 'inline-flex';
+  document.getElementById('musica-selection-bar').style.display = musicaSeleccionMode ? 'flex' : 'none';
+  actualizarContadorSeleccionMusica();
+  renderPlaylist();
+}
+function toggleSeleccionCancion(id){
+  if(musicaSeleccionadas.has(id)) musicaSeleccionadas.delete(id); else musicaSeleccionadas.add(id);
+  actualizarContadorSeleccionMusica();
+  renderPlaylist();
+}
+function actualizarContadorSeleccionMusica(){
+  const el = document.getElementById('musica-selection-count');
+  if(el) el.textContent = musicaSeleccionadas.size + ' seleccionada' + (musicaSeleccionadas.size===1?'':'s');
+}
+function eliminarSeleccionMusica(){
+  if(musicaSeleccionadas.size === 0) return;
+  if(!confirm('¿Eliminar '+musicaSeleccionadas.size+' canción(es) de la lista?')) return;
+  const cancionActual = musicaIndice>=0 ? musicaLista[musicaIndice] : null;
+  musicaLista = musicaLista.filter(s => !musicaSeleccionadas.has(s.id));
+  if(cancionActual && musicaSeleccionadas.has(cancionActual.id)){
+    document.getElementById('musica-audio').pause();
+    document.getElementById('musica-reproductor').style.display = 'none';
+    musicaIndice = -1;
+  } else if(cancionActual){
+    musicaIndice = musicaLista.findIndex(s=>s.id===cancionActual.id);
+  }
+  musicaSeleccionadas.clear();
+  musicaSeleccionMode = false;
+  document.getElementById('musica-btn-seleccionar').style.display = 'inline-flex';
+  document.getElementById('musica-selection-bar').style.display = 'none';
+  renderPlaylist();
+}
 function quitarCancion(id){
   const idx = musicaLista.findIndex(s=>s.id===id);
   if(idx===-1) return;
@@ -2188,6 +2279,13 @@ function renderPlaylist(){
   }
   wrap.innerHTML = musicaLista.map((s,i)=>{
     const activo = i===musicaIndice;
+    if(musicaSeleccionMode){
+      const sel = musicaSeleccionadas.has(s.id);
+      return '<div class="item" onclick="toggleSeleccionCancion(\''+s.id+'\')" style="cursor:pointer;">'
+        + '<div class="circle'+(sel?' checked':'')+'">'+(sel?'✓':'')+'</div>'
+        + '<span class="txt">'+esc(s.name)+'<small>'+esc(s.artist)+'</small></span>'
+        + '</div>';
+    }
     return '<div class="item">'
       + '<div class="dot" style="cursor:pointer; background:'+(activo?'var(--accent)':'var(--line)')+'; color:'+(activo?'#fff':'var(--muted)')+'; width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:14px;" onclick="reproducirCancion('+i+')">'+(activo?'▶':'🎵')+'</div>'
       + '<span class="txt" style="cursor:pointer; '+(activo?'color:var(--accent); font-weight:600;':'')+'" onclick="reproducirCancion('+i+')">'+esc(s.name)+'<small>'+esc(s.artist)+'</small></span>'
